@@ -86,7 +86,9 @@ class ScalableImage(object):
 
 
 class ImageAbstraction(object):
-    def __init__(self, arr):
+    def __init__(self, arr=None):
+        if arr is None:
+            return
         self.average = 1.0 * arr.sum() / arr.size
         self.noise = 1.0 * ((arr - self.average)**2).sum() / arr.size
 
@@ -112,16 +114,34 @@ def average_error(arr1, arr2):
     return 1.0 * ((arr1 - arr2)**2).sum() / arr1.size
 
 
+class TargetImage(object):
+    def __init__(self, arr):
+        self.arr = arr
+        self.scalable = ScalableImage(arr)
+        self.scalable2 = ScalableImage(arr**2)
+
+    def get_abstraction(self, x1, y1, x2, y2):
+        area = (x2 - x1) * (y2 - y1) * 1.0
+        s = self.scalable.rect_sum(y1, x1, y2, x2)
+        s2 = self.scalable2.rect_sum(y1, x1, y2, x2)
+        result = ImageAbstraction()
+        result.average = s / area
+
+        result.noise = (s2 - 2 * result.average * s) / area + result.average**2
+        return result
+
+
 if __name__ == '__main__':
     w = h = 50
 
     arr1 = load_image('data/100px/3.png')
+    ia1 = TargetImage(arr1).get_abstraction(0, 0, w, h)
     arr1 = arr1[:h, :w]
 
     arr2 = load_image('data/100px/4.png')
     arr2 = ScalableImage(arr2).downscale(w, h)
 
-    ia1 = ImageAbstraction(arr1)
+    #ia1 = ImageAbstraction(arr1)
     ia2 = ImageAbstraction(arr2)
 
     print 'average error', sqrt(average_error(arr1, arr2))
