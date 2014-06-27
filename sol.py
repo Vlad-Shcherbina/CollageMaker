@@ -78,7 +78,7 @@ class CollageMaker(object):
             self.scalables = map(ScalableImage, sources)
 
         with time_it():
-            ps = [self.grid_placements(kw, kh) for kw in range(1, 10) for kh in range(1, 10)]
+            ps = [self.grid_placements(kw, kh) for kw in range(1, 8) for kh in range(1, 8)]
 
         score, placements = min(ps)
 
