@@ -1,6 +1,7 @@
 import sys
 from timeit import default_timer
 import contextlib
+from math import sqrt
 
 import numpy
 
@@ -22,6 +23,46 @@ def consume_image_description(data, start):
 
 
 class CollageMaker(object):
+    def evaluate_placement(self, placements):
+        s = 0.0
+        for idx, (x1, y1, x2, y2) in placements.items():
+            a = self.scalables[idx].downscale(x2 - x1, y2 - y1)
+            s += ((self.target.arr[y1:y2, x1:x2] - a)**2).sum()
+        s /= self.target.arr.size
+        return sqrt(s)
+
+    def grid_placements(self, kw, kh):
+        h, w = self.target.arr.shape
+        placements = {}
+        approx = 0
+        with time_it('grid_placements'):
+            for i in range(kh):
+                y1 = h * i // kh
+                y2 = h * (i + 1) // kh
+                for j in range(kw):
+                    x1 = w * j // kw
+                    x2 = w * (j + 1) // kw
+
+                    ia1 = self.target.get_abstraction(x1, y1, x2, y2)
+
+                    best = 1e10
+                    best_index = None
+                    for idx, ia2 in enumerate(self.ias):
+                        if idx in placements:
+                            continue
+                        a = self.scalables[idx].arr
+                        if a.shape[0] < y2 - y1 or a.shape[1] < x2 - x1:
+                            continue
+                        d = ia1.average_error(ia2)
+                        if d < best:
+                            best = d
+                            best_index = idx
+                    if best_index is None:
+                        return 1e10, None
+                    placements[best_index] = (x1, y1, x2, y2)
+                    approx += best * (x2 - x1) * (y2 - y1)
+        return sqrt(1.0 * approx / self.target.arr.size), placements
+
     def compose(self, data):
         with time_it('loading'):
             target, pos = consume_image_description(data, start=0)
@@ -32,38 +73,20 @@ class CollageMaker(object):
             assert len(sources) == 200
 
         with time_it('preprocessing'):
-            h, w = target.shape
-            target = TargetImage(target)
+            self.target = target = TargetImage(target)
 
-            ias = map(ImageAbstraction, sources)
+            self.ias = ias = map(ImageAbstraction, sources)
+            self.scalables = map(ScalableImage, sources)
 
-        with time_it('solving'):
-            result = [-1] * 4 * len(sources)
-            used_sources = set()
+        ps = [self.grid_placements(kw, kh) for kw in range(1, 10) for kh in range(1, 10)]
 
-            k = 7
-            for i in range(k):
-                y1 = h * i // k
-                y2 = h * (i + 1) // k
-                for j in range(k):
-                    x1 = w * j // k
-                    x2 = w * (j + 1) // k
+        score, placements = min(ps)
 
-                    ia1 = target.get_abstraction(x1, y1, x2, y2)
-
-                    best = 1e10
-                    best_index = None
-                    for idx, ia2 in enumerate(ias):
-                        if idx in used_sources:
-                            continue
-                        d = ia1.average_error(ia2)
-                        if d < best:
-                            best = d
-                            best_index = idx
-
-                    used_sources.add(best_index)
-                    result[best_index * 4 : best_index * 4 + 4] = [y1, x1, y2 - 1, x2 - 1]
-
+        print>>sys.stderr, 'expected score: ', score
+        print>>sys.stderr, len(placements)
+        result = [-1] * 4 * len(sources)
+        for idx, (x1, y1, x2, y2) in placements.items():
+            result[idx * 4 : idx * 4 + 4] = [y1, x1, y2 - 1, x2 - 1]
         return result
 
 
