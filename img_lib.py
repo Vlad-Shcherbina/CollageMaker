@@ -1,4 +1,12 @@
-import Image
+import sys
+from math import sqrt
+import random
+
+try:
+    import Image
+except ImportError:
+    # to work in TC environment
+    print>>sys.stderr, "warning: can't import Image module"
 import numpy
 
 
@@ -77,11 +85,44 @@ class ScalableImage(object):
         return result
 
 
-if __name__ == '__main__':
-    arr = load_image('data/100px/1.png')
-    print arr.shape
+class ImageAbstraction(object):
+    def __init__(self, arr):
+        self.average = 1.0 * arr.sum() / arr.size
+        self.noise = 1.0 * ((arr - self.average)**2).sum() / arr.size
 
-    w, h = 20, 17
-    small_arr = ScalableImage(arr).downscale(w, h)
-    assert (naive_downscale(arr, w, h) == small_arr).all()
-    save_image(small_arr, "hz.png")
+    def instantiate(self, w, h):
+        result = numpy.zeros((h, w))
+        for i in range(h):
+            for j in range(w):
+                c = random.normalvariate(self.average, sqrt(self.noise))
+                c = int(c + 0.5)
+                if c < 0:
+                    c = 0
+                if c > 255:
+                    c = 255
+                result[i, j] = c
+        return result
+
+    def average_error(self, other):
+        return (self.average - other.average)**2 + self.noise + other.noise
+
+
+def average_error(arr1, arr2):
+    assert arr1.shape == arr2.shape
+    return 1.0 * ((arr1 - arr2)**2).sum() / arr1.size
+
+
+if __name__ == '__main__':
+    w = h = 50
+
+    arr1 = load_image('data/100px/3.png')
+    arr1 = arr1[:h, :w]
+
+    arr2 = load_image('data/100px/4.png')
+    arr2 = ScalableImage(arr2).downscale(w, h)
+
+    ia1 = ImageAbstraction(arr1)
+    ia2 = ImageAbstraction(arr2)
+
+    print 'average error', sqrt(average_error(arr1, arr2))
+    print 'predicted', sqrt(ia1.average_error(ia2))
