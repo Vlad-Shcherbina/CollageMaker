@@ -35,32 +35,31 @@ class CollageMaker(object):
         h, w = self.target.arr.shape
         placements = {}
         approx = 0
-        with time_it('grid_placements'):
-            for i in range(kh):
-                y1 = h * i // kh
-                y2 = h * (i + 1) // kh
-                for j in range(kw):
-                    x1 = w * j // kw
-                    x2 = w * (j + 1) // kw
+        for i in range(kh):
+            y1 = h * i // kh
+            y2 = h * (i + 1) // kh
+            for j in range(kw):
+                x1 = w * j // kw
+                x2 = w * (j + 1) // kw
 
-                    ia1 = self.target.get_abstraction(x1, y1, x2, y2)
+                ia1 = self.target.get_abstraction(x1, y1, x2, y2)
 
-                    best = 1e10
-                    best_index = None
-                    for idx, ia2 in enumerate(self.ias):
-                        if idx in placements:
-                            continue
-                        a = self.scalables[idx].arr
-                        if a.shape[0] < y2 - y1 or a.shape[1] < x2 - x1:
-                            continue
-                        d = ia1.average_error(ia2)
-                        if d < best:
-                            best = d
-                            best_index = idx
-                    if best_index is None:
-                        return 1e10, None
-                    placements[best_index] = (x1, y1, x2, y2)
-                    approx += best * (x2 - x1) * (y2 - y1)
+                best = 1e10
+                best_index = None
+                for idx, ia2 in enumerate(self.ias):
+                    if idx in placements:
+                        continue
+                    a = self.scalables[idx].arr
+                    if a.shape[0] < y2 - y1 or a.shape[1] < x2 - x1:
+                        continue
+                    d = ia1.average_error(ia2)
+                    if d < best:
+                        best = d
+                        best_index = idx
+                if best_index is None:
+                    return 1e10, None
+                placements[best_index] = (x1, y1, x2, y2)
+                approx += best * (x2 - x1) * (y2 - y1)
         return sqrt(1.0 * approx / self.target.arr.size), placements
 
     def compose(self, data):
@@ -78,7 +77,8 @@ class CollageMaker(object):
             self.ias = ias = map(ImageAbstraction, sources)
             self.scalables = map(ScalableImage, sources)
 
-        ps = [self.grid_placements(kw, kh) for kw in range(1, 10) for kh in range(1, 10)]
+        with time_it():
+            ps = [self.grid_placements(kw, kh) for kw in range(1, 10) for kh in range(1, 10)]
 
         score, placements = min(ps)
 
