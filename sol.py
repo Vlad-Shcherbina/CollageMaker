@@ -22,6 +22,27 @@ def consume_image_description(data, start):
     return arr.reshape((h, w)), start + 2 + h * w
 
 
+class IALookupTable(object):
+    def __init__(self, ias):
+        self.ias = sorted(enumerate(ias), key=lambda (i, ia): ia.noise)
+
+    def find_nearest(self, ia1, min_w, min_h, occupied):
+        best_score = 1e10
+        best_index = None
+        for idx, ia2 in self.ias:
+            if best_score < ia1.noise + ia2.noise:
+                break
+            if idx in occupied:
+                continue
+            if ia2.height < min_h or ia2.width < min_w:
+                continue
+            d = ia1.average_error(ia2)
+            if d < best_score:
+                best_score = d
+                best_index = idx
+        return best_index, best_score
+
+
 class CollageMaker(object):
     def evaluate_placement(self, placements):
         s = 0.0
@@ -30,21 +51,6 @@ class CollageMaker(object):
             s += ((self.target.arr[y1:y2, x1:x2] - a)**2).sum()
         s /= self.target.arr.size
         return sqrt(s)
-
-    def best_match(self, ia1, min_w, min_h, occupied):
-        best_score = 1e10
-        best_index = None
-        for idx, ia2 in enumerate(self.ias):
-            if idx in occupied:
-                continue
-            a = self.scalables[idx].arr
-            if a.shape[0] < min_h or a.shape[1] < min_w:
-                continue
-            d = ia1.average_error(ia2)
-            if d < best_score:
-                best_score = d
-                best_index = idx
-        return best_index, best_score
 
     def try_subdivide(self, placements, idx):
         x1, y1, x2, y2 = placements[idx]
@@ -57,38 +63,54 @@ class CollageMaker(object):
         best_score = penalty
         best_left = None
         best_right = None
-        best_x = None
+        best_sub = None
 
-        for x in range(x1 + 8, x2 - 8 + 1, 2):
-            ia_left = self.target.get_abstraction(x1, y1, x, y2)
-            ia_right = self.target.get_abstraction(x, y1, x2, y2)
+        subdivisions = []
+        for x in range(x1 + 5, x2 - 5 + 1, 2):
+            subdivisions.append(((x1, y1, x, y2), (x, y1, x2, y2)))
+        for y in range(y1 + 5, y2 - 5 + 1, 2):
+            subdivisions.append(((x1, y1, x2, y), (x1, y, x2, y2)))
 
-            idx_left, score_left = self.best_match(ia_left, x - x1, y2 - y1, placements)
+        for rect_left, rect_right in subdivisions:
+            ia_left = self.target.get_abstraction(*rect_left)
+            ia_right = self.target.get_abstraction(*rect_right)
+
+            idx_left, score_left = self.ia_table.find_nearest(
+                ia_left,
+                min_w=rect_left[2] - rect_left[0],
+                min_h=rect_left[3] - rect_left[1],
+                occupied=placements)
             if idx_left is None:
                 continue
             placements[idx_left] = ()
-            idx_right, score_right = self.best_match(ia_right, x2 - x, y2 - y1, placements)
+            idx_right, score_right = self.ia_table.find_nearest(
+                ia_right,
+                min_w=rect_right[2] - rect_right[0],
+                min_h=rect_right[3] - rect_right[1],
+                occupied=placements)
             del placements[idx_left]
 
             if idx_right is None:
                 continue
 
-            score = 1.0 * (score_left * (x - x1) + score_right * (x2 - x)) / (x2 - x1)
+            area_left = (rect_left[2] - rect_left[0]) * (rect_left[3] - rect_left[1])
+            area_right = (rect_right[2] - rect_right[0]) * (rect_right[3] - rect_right[1])
+            score = 1.0 * (score_left * area_left + score_right * area_right) / (area_left + area_right)
             if score < best_score:
                 best_score = score
                 best_left = idx_left
                 best_right = idx_right
-                best_x = x
+                best_sub = rect_left, rect_right
 
-        if best_left is None:
+        if best_sub is None:
             placements[idx] = (x1, y1, x2, y2)
         else:
             assert best_left is not None
             assert best_right is not None
-            assert best_x is not None
+            assert best_sub is not None
             print>>sys.stderr, 'subdividing'
-            placements[best_left] = (x1, y1, best_x, y2)
-            placements[best_right] = (best_x, y1, x2, y2)
+            placements[best_left] = best_sub[0]
+            placements[best_right] = best_sub[1]
 
     def grid_placements(self, kw, kh):
         h, w = self.target.arr.shape
@@ -102,7 +124,7 @@ class CollageMaker(object):
                 x2 = w * (j + 1) // kw
 
                 ia1 = self.target.get_abstraction(x1, y1, x2, y2)
-                best_index, best_score = self.best_match(
+                best_index, best_score = self.ia_table.find_nearest(
                     ia1,
                     min_w=x2 - x1, min_h=y2 - y1,
                     occupied=placements)
@@ -130,6 +152,7 @@ class CollageMaker(object):
                 t = TargetImage(source)
                 h, w = source.shape
                 self.ias.append(t.get_abstraction(0, 0, w, h))
+            self.ia_table = IALookupTable(ias)
             self.scalables = map(ScalableImage, sources)
 
         with time_it('grid placements'):
@@ -148,6 +171,7 @@ class CollageMaker(object):
             result[idx * 4 : idx * 4 + 4] = [y1, x1, y2 - 1, x2 - 1]
 
         print>>sys.stderr, 'TOTAL TIME: {:.2f}s'.format(default_timer() - GLOBAL_START)
+        sys.stderr.flush()
         return result
 
 

@@ -220,6 +220,8 @@ class TargetImage(object):
             print>>sys.stderr, 'warning: noise < 0'
             ia.noise = 0.0
         ia.compute_similarity_coords()
+        ia.width = x2 - x1
+        ia.height = y2 - y1
         return ia
 
 
