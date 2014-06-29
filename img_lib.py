@@ -91,6 +91,20 @@ class ScalableImage(object):
         return result
 
 
+# Precompute transformation to similarity space
+a = 1.0 / numpy.array([
+    [1, 2, 2],
+    [2, 3, 4],
+    [2, 4, 3]
+])
+e, vs = numpy.linalg.eigh(a)
+vs *= numpy.sqrt(e)
+if vs.sum() < 0:
+    vs = -vs
+to_sim_matrix = vs.T
+assert numpy.allclose(numpy.dot(to_sim_matrix.T, to_sim_matrix), a)
+
+
 class ImageAbstraction(object):
     def __init__(self):
         self.alpha = 0.0
@@ -114,12 +128,23 @@ class ImageAbstraction(object):
                 result[i, j] = c
         return result
 
-    def average_error(self, other):
+    def compute_similarity_coords(self):
+        self.sim_coords = numpy.dot(
+            to_sim_matrix,
+            numpy.array([self.alpha, self.alphax, self.alphay]))
+
+    def naive_average_error(self, other):
         a = self.alpha - other.alpha
         ax = self.alphax - other.alphax
         ay = self.alphay - other.alphay
         result = a**2 + (ax**2 + ay**2) * 1.0/3 + a * (ax + ay) + 0.5 * ax * ay
         return result + self.noise + other.noise
+
+    def average_error(self, other):
+        d = self.sim_coords - other.sim_coords
+        result = d.dot(d) + self.noise + other.noise
+        #assert abs(self.naive_average_error(other) - result) < 1e-6
+        return result
 
     def __str__(self):
         return 'IA({:.1f}, {:.1f}, {:.1f})+-{:.1f}'.format(
@@ -194,6 +219,7 @@ class TargetImage(object):
         if ia.noise < 0:
             print>>sys.stderr, 'warning: noise < 0'
             ia.noise = 0.0
+        ia.compute_similarity_coords()
         return ia
 
 
