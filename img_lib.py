@@ -104,12 +104,17 @@ class ImageAbstraction(object):
         sc = arr.sum()
         sx = xs.sum() * h
         sy = ys.sum() * w
+        #print 'sx', sx, sy
         sx2 = (xs**2).sum() * h
+        #print 'sx2', sx2
         sy2 = (ys**2).sum() * w
+        #print 'sy2', sy2
         sxy = (xs * ys).sum()
+        #print 'sxy', sxy
 
         scx = (arr * xs).sum()
         scy = (arr * ys).sum()
+        #print 'scx, scy', scx, scy
 
         a = numpy.array([
             [n, sx, sy],
@@ -146,6 +151,10 @@ class ImageAbstraction(object):
         result = a**2 + (ax**2 + ay**2) * 1.0/3 + a * (ax + ay) + 0.5 * ax * ay
         return result + self.noise + other.noise
 
+    def __str__(self):
+        return 'IA({:.1f}, {:.1f}, {:.1f})+-{:.1f}'.format(
+            self.alpha, self.alphax, self.alphay, sqrt(self.noise))
+
 
 def average_error(arr1, arr2):
     assert arr1.shape == arr2.shape
@@ -158,29 +167,94 @@ class TargetImage(object):
         self.rect_sum = RectSum(arr)
         self.rect_sum2 = RectSum(arr**2)
         h, w = arr.shape
-        xs = numpy.array(range(w)).reshape(1, w)
-        ys = numpy.array(range(h)).reshape(h, 1)
+        xs = numpy.arange(w).reshape(1, w)
+        ys = numpy.arange(h).reshape(h, 1)
         self.rect_sum_x = RectSum(arr * xs)
         self.rect_sum_y = RectSum(arr * ys)
 
     def get_abstraction(self, x1, y1, x2, y2):
-        area = (x2 - x1) * (y2 - y1) * 1.0
-        s = self.rect_sum(x1, y1, x2, y2)
-        s2 = self.rect_sum2(x1, y1, x2, y2)
-        result = ImageAbstraction()
-        average = result.alpha = s / area
+        #area = (x2 - x1) * (y2 - y1) * 1.0
+        #s = self.rect_sum(x1, y1, x2, y2)
 
-        result.noise = (s2 - 2 * average * s) / area + average**2
+        n = 1.0 * (x2 - x1) * (y2 - y1)
+        sc = self.rect_sum(x1, y1, x2, y2)
+        sc2 = self.rect_sum2(x1, y1, x2, y2)
+
+        sx = sy = (y2 - y1) * (x2 - x1) * 0.5
+        #print 'sx', sx, sy
+
+        sx2 = 1.0 * (x2 * (x2 - 1) * (2*x2 - 1) - x1 * (x1 - 1) * (2*x1 - 1)) / (x2 - x1)**2 / 6
+        sx2 -= 0.5 * (2*x1 - 1) / (x2 - x1)**2 * (x2 * (x2 - 1) - x1 * (x1 - 1))
+        sx2 += (x2 - x1) * ((x1 - 0.5) / (x2 - x1))**2
+        sx2 *= y2 - y1
+        #print 'sx2', sx2
+
+        sy2 = 1.0 * (y2 * (y2 - 1) * (2*y2 - 1) - y1 * (y1 - 1) * (2*y1 - 1)) / (y2 - y1)**2 / 6
+        sy2 -= 0.5 * (2*y1 - 1) / (y2 - y1)**2 * (y2 * (y2 - 1) - y1 * (y1 - 1))
+        sy2 += (y2 - y1) * ((y1 - 0.5) / (y2 - y1))**2
+        sy2 *= x2 - x1
+        #print 'sy2', sy2
+
+        sxy = 0.25 * (x2 * (x2 - 1) - x1 * (x1 - 1)) * (y2 * (y2 - 1) - y1 * (y1 - 1)) / n
+        sxy -= sx * (y1 - 0.5) / (y2 - y1)
+        sxy -= sy * (x1 - 0.5) / (x2 - x1)
+        sxy -= (x1 - 0.5) * (y1 - 0.5)
+
+        #print 'sxy', sxy
+
+        scx = 1.0 * self.rect_sum_x(x1, y1, x2, y2) / (x2 - x1) - sc * (x1 - 0.5) / (x2 - x1)
+        scy = 1.0 * self.rect_sum_y(x1, y1, x2, y2) / (y2 - y1) - sc * (y1 - 0.5) / (y2 - y1)
+        #print 'scx, scy', scx, scy
+
+        result = ImageAbstraction()
+
+        a = numpy.array([
+            [n, sx, sy],
+            [sx, sx2, sxy],
+            [sy, sxy, sy2]])
+        a_inv = numpy.linalg.pinv(a)
+
+        b = numpy.array([sc, scx, scy])
+        sol = numpy.dot(a_inv, b)
+        result.alpha, result.alphax, result.alphay = sol
+
+        #result.noise = (s2 - 2 * average * s) / area + average**2
+        #result.noise = 0
+
+        result.noise = (
+            n * result.alpha**2 +
+            sx2 * result.alphax**2 +
+            sy2 * result.alphay**2 +
+            2 * result.alpha * result.alphax * sx +
+            2 * result.alpha * result.alphay * sy +
+            2 * result.alphax * result.alphay * sxy +
+            sc2
+            - 2 * result.alpha * sc
+            - 2 * result.alphax * scx
+            - 2 * result.alphay * scy
+            ) / n
+        if result.noise < 0:
+            print>>sys.stderr, 'warning: noise < 0'
+            result.noise = 0.0
         return result
 
 
 if __name__ == '__main__':
+    x0 = 3
+    y0 = 1
     w = 50
-    h = 50
+    h = 40
 
-    arr1 = load_image('data/100px/105.png')
-    ia1 = TargetImage(arr1).get_abstraction(0, 0, w, h)
-    arr1 = arr1[:h, :w]
+    arr1 = load_image('data/100px/1.png')
+    ia1 = TargetImage(arr1).get_abstraction(x0, y0, w, h)
+    arr1 = arr1[y0:h, x0:w]
+
+    print ia1
+    print ImageAbstraction(arr1)
+
+
+    exit()
+
     #arr1 = ScalableImage(arr1).downscale(w, h)
 
     arr2 = load_image('data/100px/104.png')
