@@ -74,7 +74,11 @@ class CollageMaker(object):
         with time_it('preprocessing'):
             self.target = target = TargetImage(target)
 
-            self.ias = ias = map(ImageAbstraction, sources)
+            self.ias = ias = []
+            for source in sources:
+                t = TargetImage(source)
+                h, w = source.shape
+                self.ias.append(t.get_abstraction(0, 0, w, h))
             self.scalables = map(ScalableImage, sources)
 
         with time_it():
@@ -87,6 +91,8 @@ class CollageMaker(object):
         result = [-1] * 4 * len(sources)
         for idx, (x1, y1, x2, y2) in placements.items():
             result[idx * 4 : idx * 4 + 4] = [y1, x1, y2 - 1, x2 - 1]
+
+        print>>sys.stderr, 'TOTAL TIME: {:.2f}s'.format(default_timer() - GLOBAL_START)
         return result
 
 
@@ -94,7 +100,6 @@ def main():
     n = int(raw_input())
     data = [int(raw_input()) for _ in range(n)]
     result = CollageMaker().compose(data)
-    #print>>sys.stderr, result, len(result)
     for x in result:
         print x
     sys.stdout.flush()

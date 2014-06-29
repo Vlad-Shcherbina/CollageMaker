@@ -1,3 +1,6 @@
+from timeit import default_timer
+GLOBAL_START = default_timer()
+
 import sys
 from math import sqrt
 import random
@@ -89,52 +92,19 @@ class ScalableImage(object):
 
 
 class ImageAbstraction(object):
-    def __init__(self, arr=None):
-        if arr is None:
-            self.alphax = 0
-            self.alphay = 0
-            return
-
-        h, w = arr.shape
-
-        xs = numpy.arange(0.5 / w, 1.0, 1.0 / w).reshape(1, w)
-        ys = numpy.arange(0.5 / h, 1.0, 1.0 / h).reshape(h, 1)
-
-        n = arr.size
-        sc = arr.sum()
-        sx = xs.sum() * h
-        sy = ys.sum() * w
-        #print 'sx', sx, sy
-        sx2 = (xs**2).sum() * h
-        #print 'sx2', sx2
-        sy2 = (ys**2).sum() * w
-        #print 'sy2', sy2
-        sxy = (xs * ys).sum()
-        #print 'sxy', sxy
-
-        scx = (arr * xs).sum()
-        scy = (arr * ys).sum()
-        #print 'scx, scy', scx, scy
-
-        a = numpy.array([
-            [n, sx, sy],
-            [sx, sx2, sxy],
-            [sy, sxy, sy2]])
-        a_inv = numpy.linalg.pinv(a)
-
-        b = numpy.array([sc, scx, scy])
-        sol = numpy.dot(a_inv, b)
-        self.alpha, self.alphax, self.alphay = sol
-
-        self.noise = ((self.alpha + xs * self.alphax + ys * self.alphay - arr)**2).sum() / arr.size
+    def __init__(self):
+        self.alpha = 0.0
+        self.alphax = 0.0
+        self.alphay = 0.0
+        self.noise = -1
 
     def instantiate(self, w, h):
         result = numpy.zeros((h, w))
         for i in range(h):
             for j in range(w):
                 q = (self.alpha +
-                    (j + 0.5) / h * self.alphax +
-                    (i + 0.5) / w * self.alphay)
+                    (j + 0.5) / w * self.alphax +
+                    (i + 0.5) / h * self.alphay)
                 c = random.normalvariate(q, sqrt(self.noise))
                 c = int(c + 0.5)
                 # if c < 0:
@@ -173,40 +143,31 @@ class TargetImage(object):
         self.rect_sum_y = RectSum(arr * ys)
 
     def get_abstraction(self, x1, y1, x2, y2):
-        #area = (x2 - x1) * (y2 - y1) * 1.0
-        #s = self.rect_sum(x1, y1, x2, y2)
-
         n = 1.0 * (x2 - x1) * (y2 - y1)
         sc = self.rect_sum(x1, y1, x2, y2)
         sc2 = self.rect_sum2(x1, y1, x2, y2)
 
         sx = sy = (y2 - y1) * (x2 - x1) * 0.5
-        #print 'sx', sx, sy
 
         sx2 = 1.0 * (x2 * (x2 - 1) * (2*x2 - 1) - x1 * (x1 - 1) * (2*x1 - 1)) / (x2 - x1)**2 / 6
         sx2 -= 0.5 * (2*x1 - 1) / (x2 - x1)**2 * (x2 * (x2 - 1) - x1 * (x1 - 1))
         sx2 += (x2 - x1) * ((x1 - 0.5) / (x2 - x1))**2
         sx2 *= y2 - y1
-        #print 'sx2', sx2
 
         sy2 = 1.0 * (y2 * (y2 - 1) * (2*y2 - 1) - y1 * (y1 - 1) * (2*y1 - 1)) / (y2 - y1)**2 / 6
         sy2 -= 0.5 * (2*y1 - 1) / (y2 - y1)**2 * (y2 * (y2 - 1) - y1 * (y1 - 1))
         sy2 += (y2 - y1) * ((y1 - 0.5) / (y2 - y1))**2
         sy2 *= x2 - x1
-        #print 'sy2', sy2
 
         sxy = 0.25 * (x2 * (x2 - 1) - x1 * (x1 - 1)) * (y2 * (y2 - 1) - y1 * (y1 - 1)) / n
         sxy -= sx * (y1 - 0.5) / (y2 - y1)
         sxy -= sy * (x1 - 0.5) / (x2 - x1)
         sxy -= (x1 - 0.5) * (y1 - 0.5)
 
-        #print 'sxy', sxy
-
         scx = 1.0 * self.rect_sum_x(x1, y1, x2, y2) / (x2 - x1) - sc * (x1 - 0.5) / (x2 - x1)
         scy = 1.0 * self.rect_sum_y(x1, y1, x2, y2) / (y2 - y1) - sc * (y1 - 0.5) / (y2 - y1)
-        #print 'scx, scy', scx, scy
 
-        result = ImageAbstraction()
+        ia = ImageAbstraction()
 
         a = numpy.array([
             [n, sx, sy],
@@ -216,27 +177,24 @@ class TargetImage(object):
 
         b = numpy.array([sc, scx, scy])
         sol = numpy.dot(a_inv, b)
-        result.alpha, result.alphax, result.alphay = sol
+        ia.alpha, ia.alphax, ia.alphay = sol
 
-        #result.noise = (s2 - 2 * average * s) / area + average**2
-        #result.noise = 0
-
-        result.noise = (
-            n * result.alpha**2 +
-            sx2 * result.alphax**2 +
-            sy2 * result.alphay**2 +
-            2 * result.alpha * result.alphax * sx +
-            2 * result.alpha * result.alphay * sy +
-            2 * result.alphax * result.alphay * sxy +
+        ia.noise = (
+            n * ia.alpha**2 +
+            sx2 * ia.alphax**2 +
+            sy2 * ia.alphay**2 +
+            2 * ia.alpha * ia.alphax * sx +
+            2 * ia.alpha * ia.alphay * sy +
+            2 * ia.alphax * ia.alphay * sxy +
             sc2
-            - 2 * result.alpha * sc
-            - 2 * result.alphax * scx
-            - 2 * result.alphay * scy
+            - 2 * ia.alpha * sc
+            - 2 * ia.alphax * scx
+            - 2 * ia.alphay * scy
             ) / n
-        if result.noise < 0:
+        if ia.noise < 0:
             print>>sys.stderr, 'warning: noise < 0'
-            result.noise = 0.0
-        return result
+            ia.noise = 0.0
+        return ia
 
 
 if __name__ == '__main__':
@@ -249,28 +207,20 @@ if __name__ == '__main__':
     ia1 = TargetImage(arr1).get_abstraction(x0, y0, w, h)
     arr1 = arr1[y0:h, x0:w]
 
-    print ia1
-    print ImageAbstraction(arr1)
-
-
-    exit()
-
-    #arr1 = ScalableImage(arr1).downscale(w, h)
-
     arr2 = load_image('data/100px/104.png')
-    #h, w = arr2.shape
-    arr2 = ScalableImage(arr2).downscale(w, h)
+    arr2 = ScalableImage(arr2).downscale(w - x0, h - y0)
+    ia2 = TargetImage(arr2).get_abstraction(0, 0, w-x0, h-y0)
 
-    #ia1 = ImageAbstraction(arr1)
-    ia2 = ImageAbstraction(arr2)
+    print ia1
+    print ia2
 
     print 'average error', sqrt(average_error(arr1, arr2))
     print 'predicted', sqrt(ia1.average_error(ia2))
 
     for _ in range(10):
-        print 'sample', sqrt(average_error(ia1.instantiate(w, h), ia2.instantiate(w, h)))
+        print 'sample', sqrt(average_error(ia1.instantiate(w-x0, h-y0), ia2.instantiate(w-x0, h-y0)))
 
     save_image(arr1, 'hz.png')
     save_image(arr2, 'hz2.png')
-    # save_image(ia1.instantiate(w, h), 'hz.png')
-    # save_image(ia2.instantiate(w, h), 'hz2.png')
+    save_image(ia1.instantiate(w, h), 'hz_i.png')
+    save_image(ia2.instantiate(w, h), 'hz2_i.png')
