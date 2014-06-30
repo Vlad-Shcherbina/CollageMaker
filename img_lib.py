@@ -119,12 +119,12 @@ class ImageAbstraction(object):
                 q = (self.alpha +
                     (j + 0.5) / w * self.alphax +
                     (i + 0.5) / h * self.alphay)
-                c = random.normalvariate(q, sqrt(self.noise))
+                c = random.normalvariate(q, self.noise)
                 c = int(c + 0.5)
-                # if c < 0:
-                #     c = 0
-                # if c > 255:
-                #     c = 255
+                if c < 0:
+                    c = 0
+                if c > 255:
+                    c = 255
                 result[i, j] = c
         return result
 
@@ -138,17 +138,17 @@ class ImageAbstraction(object):
         ax = self.alphax - other.alphax
         ay = self.alphay - other.alphay
         result = a**2 + (ax**2 + ay**2) * 1.0/3 + a * (ax + ay) + 0.5 * ax * ay
-        return result + self.noise + other.noise
+        return result + self.noise**2 + other.noise**2
 
     def average_error(self, other):
         d = self.sim_coords - other.sim_coords
-        result = d.dot(d) + self.noise + other.noise
+        result = d.dot(d) + self.noise**2 + other.noise**2
         #assert abs(self.naive_average_error(other) - result) < 1e-6
         return result
 
     def __str__(self):
         return 'IA({:.1f}, {:.1f}, {:.1f})+-{:.1f}'.format(
-            self.alpha, self.alphax, self.alphay, sqrt(self.noise))
+            self.alpha, self.alphax, self.alphay, self.noise)
 
 
 def average_error(arr1, arr2):
@@ -219,6 +219,8 @@ class TargetImage(object):
         if ia.noise < 0:
             print>>sys.stderr, 'warning: noise < 0'
             ia.noise = 0.0
+        ia.noise = sqrt(ia.noise)
+
         ia.compute_similarity_coords()
         ia.width = x2 - x1
         ia.height = y2 - y1

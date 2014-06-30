@@ -8,9 +8,10 @@ def load_module(name):
 
 text = ''
 text += load_module('img_lib.py')
+text += load_module('target_partition.py')
 text += load_module('sol.py')
 
-text = re.sub(r'(from img_lib import \*)', r'#\1', text)
+text = re.sub(r'(from \w+ import \*)', r'#\1', text)
 text = text.replace('__main__', '__mian__')
 
 if sys.platform == 'win32':

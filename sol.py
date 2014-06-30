@@ -2,10 +2,15 @@ import sys
 from timeit import default_timer
 import contextlib
 from math import sqrt
+import random
 
 import numpy
 
 from img_lib import *
+from target_partition import *
+
+
+TIME_LIMIT = 9.0
 
 
 @contextlib.contextmanager
@@ -26,13 +31,13 @@ class IALookupTable(object):
     def __init__(self, ias):
         self.ias = sorted(enumerate(ias), key=lambda (i, ia): ia.noise)
 
-    def find_nearest(self, ia1, min_w, min_h, occupied):
+    def find_nearest(self, ia1, min_w, min_h, used):
         best_score = 1e10
         best_index = None
         for idx, ia2 in self.ias:
-            if best_score < ia1.noise + ia2.noise:
+            if best_score < ia1.noise**2 + ia2.noise**2:
                 break
-            if idx in occupied:
+            if idx in used:
                 continue
             if ia2.height < min_h or ia2.width < min_w:
                 continue
@@ -79,7 +84,7 @@ class CollageMaker(object):
                 ia_left,
                 min_w=rect_left[2] - rect_left[0],
                 min_h=rect_left[3] - rect_left[1],
-                occupied=placements)
+                used=placements)
             if idx_left is None:
                 continue
             placements[idx_left] = ()
@@ -87,7 +92,7 @@ class CollageMaker(object):
                 ia_right,
                 min_w=rect_right[2] - rect_right[0],
                 min_h=rect_right[3] - rect_right[1],
-                occupied=placements)
+                used=placements)
             del placements[idx_left]
 
             if idx_right is None:
@@ -104,6 +109,7 @@ class CollageMaker(object):
 
         if best_sub is None:
             placements[idx] = (x1, y1, x2, y2)
+            return False
         else:
             assert best_left is not None
             assert best_right is not None
@@ -111,6 +117,7 @@ class CollageMaker(object):
             print>>sys.stderr, 'subdividing'
             placements[best_left] = best_sub[0]
             placements[best_right] = best_sub[1]
+            return True
 
     def grid_placements(self, kw, kh):
         h, w = self.target.arr.shape
@@ -127,7 +134,7 @@ class CollageMaker(object):
                 best_index, best_score = self.ia_table.find_nearest(
                     ia1,
                     min_w=x2 - x1, min_h=y2 - y1,
-                    occupied=placements)
+                    used=placements)
                 if best_index is None:
                     return 1e10, None
 
@@ -136,6 +143,7 @@ class CollageMaker(object):
         return sqrt(1.0 * approx / self.target.arr.size), placements
 
     def compose(self, data):
+        random.seed(42)
         with time_it('loading'):
             target, pos = consume_image_description(data, start=0)
             sources = []
@@ -155,16 +163,33 @@ class CollageMaker(object):
             self.ia_table = IALookupTable(ias)
             self.scalables = map(ScalableImage, sources)
 
-        with time_it('grid placements'):
-            ps = [self.grid_placements(kw, kh) for kw in range(1, 8) for kh in range(1, 8)]
+        #with time_it('grid placements'):
+        #    ps = [self.grid_placements(kw, kh) for kw in range(1, 8) for kh in range(1, 8)]
+        #score, placements = min(ps)
 
-        score, placements = min(ps)
+        h, w = target.arr.shape
+        placements = {}
+
+        with time_it('build partition'):
+            items = build_partition(target)
+        items.sort(key=lambda (rect, ia): area(*rect), reverse=True)
+        with time_it('find_nearest'):
+            for (x1, y1, x2, y2), ia in items:
+                idx, _ = self.ia_table.find_nearest(ia, x2 - x1, y2 - y1, placements)
+                placements[idx] = (x1, y1, x2, y2)
 
         with time_it('subdividing'):
-            for idx in set(placements):
-                self.try_subdivide(placements, idx)
+            frozen = set()
+            for i in range(10):
+                print>>sys.stderr, 'level', i
+                for idx, _ in sorted(placements.items(), key=lambda (k, v): -area(*v)):
+                    if idx in frozen:
+                        continue
+                    if default_timer() - GLOBAL_START > TIME_LIMIT:
+                        break
+                    if not self.try_subdivide(placements, idx):
+                        frozen.add(idx)
 
-        print>>sys.stderr, 'expected score: ', score
         print>>sys.stderr, len(placements)
         result = [-1] * 4 * len(sources)
         for idx, (x1, y1, x2, y2) in placements.items():
