@@ -22,3 +22,6 @@ def test_downscaling():
   yield verify_downscaling, 31, 19, 7, 9
   yield verify_downscaling, 40, 50, 1, 1
   yield verify_downscaling, 15, 20, 14, 19
+
+  yield verify_downscaling, 15, 20, 15, 19
+  yield verify_downscaling, 15, 20, 14, 20
