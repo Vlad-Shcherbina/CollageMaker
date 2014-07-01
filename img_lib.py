@@ -53,43 +53,6 @@ class ScalableImage(object):
         self.arr = arr
         self.rect_sum = RectSum(arr)
 
-    def elementwise_downscale(self, new_w, new_h):
-        arr = self.arr
-        h, w = arr.shape
-        assert 1 <= new_w <= w
-        assert 1 <= new_h <= h
-
-        result = numpy.zeros((new_h, new_w), dtype=int)
-        for y in range(new_h):
-            for x in range(new_w):
-                i1 = y * h // new_h + 1
-                i2 = ((y + 1) * h - 1) // new_h
-                j1 = x * w // new_w + 1
-                j2 = ((x + 1) * w - 1) // new_w
-                assert y * h <= i1 * new_h
-                assert i2 * new_h <= (y + 1) * h
-                assert x * w <= j1 * new_w
-                assert j2 * new_w <= (x + 1) * w
-
-                # inner part
-                s = self.rect_sum(j1, i1, j2, i2) * new_w * new_h
-
-                # corners
-                s += (i1 * new_h - y * h) * (j1 * new_w - x * w) * arr[i1 - 1, j1 - 1]
-                s += (i1 * new_h - y * h) * ((x + 1) * w - j2 * new_w) * arr[i1 - 1, j2]
-                s += ((y + 1) * h - i2 * new_h) * (j1 * new_w - x * w) * arr[i2, j1 - 1]
-                s += ((y + 1) * h - i2 * new_h) * ((x + 1) * w - j2 * new_w) * arr[i2, j2]
-
-                # edges
-                s += (i1 * new_h - y * h) * new_w * self.rect_sum(j1, i1 - 1, j2, i1)
-                s += ((y + 1) * h - i2 * new_h) * new_w * self.rect_sum(j1, i2, j2, i2 + 1)
-                s += new_h * (j1 * new_w - x * w) * self.rect_sum(j1 - 1, i1, j1, i2)
-                s += new_h * ((x + 1) * w - j2 * new_w) * self.rect_sum(j2, i1, j2 + 1, i2)
-
-                result[y, x] = (s + h * w // 2) // (w * h)
-
-        return result
-
     def downscale(self, new_w, new_h):
         arr = self.arr
         h, w = arr.shape
