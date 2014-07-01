@@ -48,6 +48,18 @@ class RectSum(object):
         return cum[y2, x2] - cum[y1, x2] - cum[y2, x1] + cum[y1, x1]
 
 
+class CornerRectSum(object):
+    def __init__(self, arr):
+        self.h, self.w = arr.shape
+        self.sum = arr.sum()
+
+    def __call__(self, x1, y1, x2, y2):
+        assert x1 == y1 == 0
+        assert x2 == self.w
+        assert y2 == self.h
+        return self.sum
+
+
 class ScalableImage(object):
     def __init__(self, arr):
         self.arr = arr
@@ -57,13 +69,15 @@ class ScalableImage(object):
         arr = self.arr
         h, w = arr.shape
 
-        xs = numpy.arange(1, new_w + 1) * w // new_w
-        x_fracs = numpy.arange(1, new_w + 1) * w % new_w
+        xs = numpy.arange(w, (new_w + 1) * w, w)
+        x_fracs = xs % new_w
+        xs //= new_w
         xs[-1] -= 1
         x_fracs[-1] += new_w
 
-        ys = numpy.arange(1, new_h + 1) * h // new_h
-        y_fracs = numpy.arange(1, new_h + 1) * h % new_h
+        ys = numpy.arange(h, (new_h + 1) * h, h)
+        y_fracs = ys % new_h
+        ys //= new_h
         ys[-1] -= 1
         y_fracs[-1] += new_h
 
@@ -148,15 +162,15 @@ def average_error(arr1, arr2):
 
 
 class TargetImage(object):
-    def __init__(self, arr):
+    def __init__(self, arr, rect_sum_factory=RectSum):
         self.arr = arr
-        self.rect_sum = RectSum(arr)
-        self.rect_sum2 = RectSum(arr**2)
+        self.rect_sum = rect_sum_factory(arr)
+        self.rect_sum2 = rect_sum_factory(arr**2)
         h, w = arr.shape
         xs = numpy.arange(w).reshape(1, w)
         ys = numpy.arange(h).reshape(h, 1)
-        self.rect_sum_x = RectSum(arr * xs)
-        self.rect_sum_y = RectSum(arr * ys)
+        self.rect_sum_x = rect_sum_factory(arr * xs)
+        self.rect_sum_y = rect_sum_factory(arr * ys)
 
     def get_abstraction(self, x1, y1, x2, y2):
         n = 1.0 * (x2 - x1) * (y2 - y1)
@@ -207,15 +221,19 @@ class TargetImage(object):
             - 2 * ia.alphax * scx
             - 2 * ia.alphay * scy
             ) / n
-        if ia.noise < 0:
-            print>>sys.stderr, 'warning: noise < 0'
-            ia.noise = 0.0
-        ia.noise = sqrt(ia.noise)
+        if ia.noise < -1e-3:
+            print>>sys.stderr, 'warning: noise < 0', ia.noise
+        ia.noise = sqrt(max(0, ia.noise))
 
         ia.compute_similarity_coords()
         ia.width = x2 - x1
         ia.height = y2 - y1
         return ia
+
+
+def abstraction_from_arr(arr):
+    h, w = arr.shape
+    return TargetImage(arr, CornerRectSum).get_abstraction(0, 0, w, h)
 
 
 if __name__ == '__main__':

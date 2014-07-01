@@ -8,6 +8,7 @@ import numpy
 
 from img_lib import *
 from target_partition import *
+from mipmaps import *
 
 
 TIME_LIMIT = 9.0
@@ -151,6 +152,10 @@ class CollageMaker(object):
                 s, pos = consume_image_description(data, start=pos)
                 sources.append(s)
             assert len(sources) == 200
+
+        with time_it('mipmaps'):
+            for source in sources:
+                Mipmap(source)
 
         with time_it('preprocessing'):
             self.target = target = TargetImage(target)
