@@ -118,12 +118,14 @@ class ImageAbstraction(object):
         self.noise = -1
 
     def instantiate(self, w, h):
+        alpha, alphax, alphay = \
+            numpy.linalg.inv(to_sim_matrix).dot(self.sim_coords)
         result = numpy.zeros((h, w))
         for i in range(h):
             for j in range(w):
-                q = (self.alpha +
-                    (j + 0.5) / w * self.alphax +
-                    (i + 0.5) / h * self.alphay)
+                q = (alpha +
+                    (j + 0.5) / w * alphax +
+                    (i + 0.5) / h * alphay)
                 c = random.normalvariate(q, self.noise)
                 c = int(c + 0.5)
                 if c < 0:
@@ -132,11 +134,6 @@ class ImageAbstraction(object):
                     c = 255
                 result[i, j] = c
         return result
-
-    def compute_similarity_coords(self):
-        self.sim_coords = numpy.dot(
-            to_sim_matrix,
-            numpy.array([self.alpha, self.alphax, self.alphay]))
 
     def naive_average_error(self, other):
         a = self.alpha - other.alpha
@@ -161,6 +158,10 @@ def average_error(arr1, arr2):
     return 1.0 * ((arr1 - arr2)**2).sum() / arr1.size
 
 
+class Namespace(object):
+    pass
+
+
 class TargetImage(object):
     def __init__(self, arr, rect_sum_factory=RectSum):
         self.arr = arr
@@ -172,60 +173,56 @@ class TargetImage(object):
         self.rect_sum_x = rect_sum_factory(arr * xs)
         self.rect_sum_y = rect_sum_factory(arr * ys)
 
+    _cache = {}
+
     def get_abstraction(self, x1, y1, x2, y2):
         n = 1.0 * (x2 - x1) * (y2 - y1)
         sc = self.rect_sum(x1, y1, x2, y2)
         sc2 = self.rect_sum2(x1, y1, x2, y2)
 
-        sx = sy = (y2 - y1) * (x2 - x1) * 0.5
-
-        sx2 = 1.0 * (x2 * (x2 - 1) * (2*x2 - 1) - x1 * (x1 - 1) * (2*x1 - 1)) / (x2 - x1)**2 / 6
-        sx2 -= 0.5 * (2*x1 - 1) / (x2 - x1)**2 * (x2 * (x2 - 1) - x1 * (x1 - 1))
-        sx2 += (x2 - x1) * ((x1 - 0.5) / (x2 - x1))**2
-        sx2 *= y2 - y1
-
-        sy2 = 1.0 * (y2 * (y2 - 1) * (2*y2 - 1) - y1 * (y1 - 1) * (2*y1 - 1)) / (y2 - y1)**2 / 6
-        sy2 -= 0.5 * (2*y1 - 1) / (y2 - y1)**2 * (y2 * (y2 - 1) - y1 * (y1 - 1))
-        sy2 += (y2 - y1) * ((y1 - 0.5) / (y2 - y1))**2
-        sy2 *= x2 - x1
-
-        sxy = 0.25 * (x2 * (x2 - 1) - x1 * (x1 - 1)) * (y2 * (y2 - 1) - y1 * (y1 - 1)) / n
-        sxy -= sx * (y1 - 0.5) / (y2 - y1)
-        sxy -= sy * (x1 - 0.5) / (x2 - x1)
-        sxy -= (x1 - 0.5) * (y1 - 0.5)
-
         scx = 1.0 * self.rect_sum_x(x1, y1, x2, y2) / (x2 - x1) - sc * (x1 - 0.5) / (x2 - x1)
         scy = 1.0 * self.rect_sum_y(x1, y1, x2, y2) / (y2 - y1) - sc * (y1 - 0.5) / (y2 - y1)
 
+        cache_key = y2 - y1, x2 - x1
+        q = self._cache.get(cache_key)
+        if q is None:
+            self._cache[cache_key] = q = Namespace()
+
+            q.sx = q.sy = (y2 - y1) * (x2 - x1) * 0.5
+
+            q.sx2 = 1.0 * (x2 * (x2 - 1) * (2*x2 - 1) - x1 * (x1 - 1) * (2*x1 - 1)) / (x2 - x1)**2 / 6
+            q.sx2 -= 0.5 * (2*x1 - 1) / (x2 - x1)**2 * (x2 * (x2 - 1) - x1 * (x1 - 1))
+            q.sx2 += (x2 - x1) * ((x1 - 0.5) / (x2 - x1))**2
+            q.sx2 *= y2 - y1
+
+            q.sy2 = 1.0 * (y2 * (y2 - 1) * (2*y2 - 1) - y1 * (y1 - 1) * (2*y1 - 1)) / (y2 - y1)**2 / 6
+            q.sy2 -= 0.5 * (2*y1 - 1) / (y2 - y1)**2 * (y2 * (y2 - 1) - y1 * (y1 - 1))
+            q.sy2 += (y2 - y1) * ((y1 - 0.5) / (y2 - y1))**2
+            q.sy2 *= x2 - x1
+
+            q.sxy = 0.25 * (x2 * (x2 - 1) - x1 * (x1 - 1)) * (y2 * (y2 - 1) - y1 * (y1 - 1)) / n
+            q.sxy -= q.sx * (y1 - 0.5) / (y2 - y1)
+            q.sxy -= q.sy * (x1 - 0.5) / (x2 - x1)
+            q.sxy -= (x1 - 0.5) * (y1 - 0.5)
+
+            a = numpy.array([
+                [n, q.sx, q.sy],
+                [q.sx, q.sx2, q.sxy],
+                [q.sy, q.sxy, q.sy2]])
+            q.a_inv = numpy.linalg.pinv(a)
+
         ia = ImageAbstraction()
 
-        a = numpy.array([
-            [n, sx, sy],
-            [sx, sx2, sxy],
-            [sy, sxy, sy2]])
-        a_inv = numpy.linalg.pinv(a)
-
         b = numpy.array([sc, scx, scy])
-        sol = numpy.dot(a_inv, b)
-        ia.alpha, ia.alphax, ia.alphay = sol
+        sol = q.a_inv.dot(b)
+        ia.noise = (sc2 - sol.dot(b)) * (1.0 / n)
 
-        ia.noise = (
-            n * ia.alpha**2 +
-            sx2 * ia.alphax**2 +
-            sy2 * ia.alphay**2 +
-            2 * ia.alpha * ia.alphax * sx +
-            2 * ia.alpha * ia.alphay * sy +
-            2 * ia.alphax * ia.alphay * sxy +
-            sc2
-            - 2 * ia.alpha * sc
-            - 2 * ia.alphax * scx
-            - 2 * ia.alphay * scy
-            ) / n
         if ia.noise < -1e-3:
             print>>sys.stderr, 'warning: noise < 0', ia.noise
         ia.noise = sqrt(max(0, ia.noise))
 
-        ia.compute_similarity_coords()
+        ia.sim_coords = to_sim_matrix.dot(sol)
+
         ia.width = x2 - x1
         ia.height = y2 - y1
         return ia

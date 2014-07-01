@@ -14,10 +14,11 @@ class Mipmap(object):
 
         def intermediate_sizes(size):
             result = []
-            x = 1
-            while x < size * 2 // 3:
+            for x in 3, 4, 10, 30:
+                if x > size // 2:
+                    break
                 result.append(x)
-                x *= 2
+
             result.append(size)
             return result
 

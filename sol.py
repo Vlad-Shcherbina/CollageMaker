@@ -72,9 +72,9 @@ class CollageMaker(object):
         best_sub = None
 
         subdivisions = []
-        for x in range(x1 + 5, x2 - 5 + 1, 2):
+        for x in range(x1 + 3, x2 - 3 + 1, 2):
             subdivisions.append(((x1, y1, x, y2), (x, y1, x2, y2)))
-        for y in range(y1 + 5, y2 - 5 + 1, 2):
+        for y in range(y1 + 3, y2 - 3 + 1, 2):
             subdivisions.append(((x1, y1, x2, y), (x1, y, x2, y2)))
 
         for rect_left, rect_right in subdivisions:
