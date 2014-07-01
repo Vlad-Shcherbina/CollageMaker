@@ -53,7 +53,7 @@ class ScalableImage(object):
         self.arr = arr
         self.rect_sum = RectSum(arr)
 
-    def downscale(self, new_w, new_h):
+    def elementwise_downscale(self, new_w, new_h):
         arr = self.arr
         h, w = arr.shape
         assert 1 <= new_w <= w
@@ -89,6 +89,34 @@ class ScalableImage(object):
                 result[y, x] = (s + h * w // 2) // (w * h)
 
         return result
+
+    def downscale(self, new_w, new_h):
+        arr = self.arr
+        h, w = arr.shape
+
+        xs = numpy.arange(1, new_w + 1) * w // new_w
+        x_fracs = numpy.arange(1, new_w + 1) * w % new_w
+        xs[-1] -= 1
+        x_fracs[-1] += new_w
+
+        ys = numpy.arange(1, new_h + 1) * h // new_h
+        y_fracs = numpy.arange(1, new_h + 1) * h % new_h
+        ys[-1] -= 1
+        y_fracs[-1] += new_h
+
+        ys = ys.reshape(new_h, 1)
+        y_fracs = y_fracs.reshape(new_h, 1)
+
+        q = new_w * new_h * self.rect_sum.cum[ys, xs]
+        q += (self.rect_sum.cum[ys, xs + 1] - self.rect_sum.cum[ys, xs]) * x_fracs * new_h
+        q += (self.rect_sum.cum[ys + 1, xs] - self.rect_sum.cum[ys, xs]) * y_fracs * new_w
+        q += arr[ys, xs] * x_fracs * y_fracs
+
+        q[:, 1:] -= q[:, :-1].copy()
+        q[1:, :] -= q[:-1, :].copy()
+        q = (q + (h * w) // 2) // (w * h)
+
+        return q
 
 
 # Precompute transformation to similarity space

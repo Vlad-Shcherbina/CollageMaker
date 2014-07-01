@@ -12,8 +12,10 @@ def verify_downscaling(w, h, new_w, new_h):
       arr[i, j] = random.randrange(256)
 
   naive_downscaled = img_lib.naive_downscale(arr, new_w, new_h)
+  elementwise_downscaled = img_lib.ScalableImage(arr).elementwise_downscale(new_w, new_h)
   downscaled = img_lib.ScalableImage(arr).downscale(new_w, new_h)
   assert (naive_downscaled == downscaled).all()
+  assert (elementwise_downscaled == downscaled).all()
 
 
 def test_downscaling():
