@@ -29,7 +29,7 @@ def run_solution(seed):
         result['time'] = default_timer() - start
 
         assert result['Score'] > 0
-        result['log_score'] = math.log(result['Score'])
+        result['log_score'] = -math.log(result['Score'])
 
         return result
     except Exception as e:
