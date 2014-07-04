@@ -174,11 +174,19 @@ class TargetImage(object):
         ys = numpy.arange(h).reshape(h, 1)
         self.rect_sum_x = rect_sum_factory(arr * xs)
         self.rect_sum_y = rect_sum_factory(arr * ys)
+        self._cache = {}
 
-    _cache = {}
+    _global_cache = {}
+
+
 
     @TimeIt('get_abstraction')
     def get_abstraction(self, x1, y1, x2, y2):
+        rect = x1, y1, x2, y2
+        if rect in self._cache:
+            add_value('get_abstraction from cache', 1)
+            return self._cache[rect]
+
         n = 1.0 * (x2 - x1) * (y2 - y1)
         sc = self.rect_sum(x1, y1, x2, y2)
         sc2 = self.rect_sum2(x1, y1, x2, y2)
@@ -187,32 +195,33 @@ class TargetImage(object):
         scy = 1.0 * self.rect_sum_y(x1, y1, x2, y2) / (y2 - y1) - sc * (y1 - 0.5) / (y2 - y1)
 
         cache_key = y2 - y1, x2 - x1
-        q = self._cache.get(cache_key)
+        q = self._global_cache.get(cache_key)
         if q is None:
-            self._cache[cache_key] = q = Namespace()
+            with TimeIt('get_abstraction matrix'):
+                self._global_cache[cache_key] = q = Namespace()
 
-            q.sx = q.sy = (y2 - y1) * (x2 - x1) * 0.5
+                q.sx = q.sy = (y2 - y1) * (x2 - x1) * 0.5
 
-            q.sx2 = 1.0 * (x2 * (x2 - 1) * (2*x2 - 1) - x1 * (x1 - 1) * (2*x1 - 1)) / (x2 - x1)**2 / 6
-            q.sx2 -= 0.5 * (2*x1 - 1) / (x2 - x1)**2 * (x2 * (x2 - 1) - x1 * (x1 - 1))
-            q.sx2 += (x1 - 0.5) * (x1 - 0.5) / (x2 - x1)
-            q.sx2 *= y2 - y1
+                q.sx2 = 1.0 * (x2 * (x2 - 1) * (2*x2 - 1) - x1 * (x1 - 1) * (2*x1 - 1)) / (x2 - x1)**2 / 6
+                q.sx2 -= 0.5 * (2*x1 - 1) / (x2 - x1)**2 * (x2 * (x2 - 1) - x1 * (x1 - 1))
+                q.sx2 += (x1 - 0.5) * (x1 - 0.5) / (x2 - x1)
+                q.sx2 *= y2 - y1
 
-            q.sy2 = 1.0 * (y2 * (y2 - 1) * (2*y2 - 1) - y1 * (y1 - 1) * (2*y1 - 1)) / (y2 - y1)**2 / 6
-            q.sy2 -= 0.5 * (2*y1 - 1) / (y2 - y1)**2 * (y2 * (y2 - 1) - y1 * (y1 - 1))
-            q.sy2 += (y1 - 0.5) * (y1 - 0.5) / (y2 - y1)
-            q.sy2 *= x2 - x1
+                q.sy2 = 1.0 * (y2 * (y2 - 1) * (2*y2 - 1) - y1 * (y1 - 1) * (2*y1 - 1)) / (y2 - y1)**2 / 6
+                q.sy2 -= 0.5 * (2*y1 - 1) / (y2 - y1)**2 * (y2 * (y2 - 1) - y1 * (y1 - 1))
+                q.sy2 += (y1 - 0.5) * (y1 - 0.5) / (y2 - y1)
+                q.sy2 *= x2 - x1
 
-            q.sxy = 0.25 * (x2 * (x2 - 1) - x1 * (x1 - 1)) * (y2 * (y2 - 1) - y1 * (y1 - 1)) / n
-            q.sxy -= q.sx * (y1 - 0.5) / (y2 - y1)
-            q.sxy -= q.sy * (x1 - 0.5) / (x2 - x1)
-            q.sxy -= (x1 - 0.5) * (y1 - 0.5)
+                q.sxy = 0.25 * (x2 * (x2 - 1) - x1 * (x1 - 1)) * (y2 * (y2 - 1) - y1 * (y1 - 1)) / n
+                q.sxy -= q.sx * (y1 - 0.5) / (y2 - y1)
+                q.sxy -= q.sy * (x1 - 0.5) / (x2 - x1)
+                q.sxy -= (x1 - 0.5) * (y1 - 0.5)
 
-            a = numpy.array([
-                [n, q.sx, q.sy],
-                [q.sx, q.sx2, q.sxy],
-                [q.sy, q.sxy, q.sy2]])
-            q.a_inv = numpy.linalg.pinv(a)
+                a = numpy.array([
+                    [n, q.sx, q.sy],
+                    [q.sx, q.sx2, q.sxy],
+                    [q.sy, q.sxy, q.sy2]])
+                q.a_inv = numpy.linalg.pinv(a)
 
         ia = ImageAbstraction()
 
@@ -228,6 +237,8 @@ class TargetImage(object):
 
         ia.width = x2 - x1
         ia.height = y2 - y1
+
+        self._cache[rect] = ia
         return ia
 
 
