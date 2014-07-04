@@ -7,6 +7,7 @@ def load_module(name):
 
 if __name__ == '__main__':
     text = ''
+    text += load_module('stats.py')
     text += load_module('img_lib.py')
     text += load_module('mipmaps.py')
     text += load_module('target_partition.py')

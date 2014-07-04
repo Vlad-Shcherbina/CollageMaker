@@ -6,6 +6,7 @@ import random
 
 import numpy
 
+from stats import *
 from img_lib import *
 from target_partition import *
 from mipmaps import *
@@ -14,14 +15,6 @@ from mipmaps import *
 TIME_LIMIT = 9.0
 
 PENALTY = 1e9
-
-
-@contextlib.contextmanager
-def time_it(task_name='it'):
-    start = default_timer()
-    yield
-    print>>sys.stderr, '{} took {:.3f}'.format(
-        task_name, default_timer() - start)
 
 
 def consume_image_description(data, start):
@@ -42,6 +35,7 @@ class IALookupTable(object):
             list(ia.sim_coords) + [ia.noise]
             for ia in ias])
 
+    @TimeIt('find_nearest')
     def find_nearest(self, ia1, min_w, min_h, used_penalty):
         pos = numpy.zeros(4)
         pos[:3] = ia1.sim_coords
@@ -57,14 +51,7 @@ class IALookupTable(object):
 
 
 class CollageMaker(object):
-    def evaluate_placement(self, placements):
-        s = 0.0
-        for idx, (x1, y1, x2, y2) in placements.items():
-            a = self.scalables[idx].downscale(x2 - x1, y2 - y1)
-            s += ((self.target.arr[y1:y2, x1:x2] - a)**2).sum()
-        s /= self.target.arr.size
-        return sqrt(s)
-
+    @TimeIt('try_subdivide')
     def try_subdivide(self, placements, used_penalty, idx):
         x1, y1, x2, y2 = placements[idx]
 
@@ -126,7 +113,6 @@ class CollageMaker(object):
             assert best_left is not None
             assert best_right is not None
             assert best_sub is not None
-            print>>sys.stderr, 'subdividing'
             placements[best_left] = best_sub[0]
             placements[best_right] = best_sub[1]
             used_penalty[best_left] = PENALTY
@@ -134,8 +120,9 @@ class CollageMaker(object):
             return True
 
     def compose(self, data):
+        logging.basicConfig(level=logging.DEBUG)
         random.seed(42)
-        with time_it('loading'):
+        with TimeIt('coverting to numpy'):
             target, pos = consume_image_description(data, start=0)
             sources = []
             while pos < len(data):
@@ -143,11 +130,11 @@ class CollageMaker(object):
                 sources.append(s)
             assert len(sources) == 200
 
-        with time_it('mipmaps'):
+        with TimeIt('mipmaps'):
             for source in sources:
                 Mipmap(source)
 
-        with time_it('preprocessing'):
+        with TimeIt('preprocessing'):
             self.target = target = TargetImage(target)
 
             self.ias = ias = []
@@ -162,29 +149,32 @@ class CollageMaker(object):
         placements = {}
         used_penalty = numpy.zeros((200,))
 
-        with time_it('build partition'):
+        with TimeIt('build partition'):
             items = build_partition(target)
         items.sort(key=lambda (rect, ia): area(*rect), reverse=True)
-        with time_it('find_nearest'):
-            for (x1, y1, x2, y2), ia in items:
-                idx, _ = self.ia_table.find_nearest(
-                    ia, x2 - x1, y2 - y1,
-                    used_penalty)
-                placements[idx] = (x1, y1, x2, y2)
-                used_penalty[idx] = PENALTY
+        for (x1, y1, x2, y2), ia in items:
+            idx, _ = self.ia_table.find_nearest(
+                ia, x2 - x1, y2 - y1,
+                used_penalty)
+            placements[idx] = (x1, y1, x2, y2)
+            used_penalty[idx] = PENALTY
 
-        with time_it('subdividing'):
+        with TimeIt('subdividing'):
             frozen = set()
             for i in range(10):
-                print>>sys.stderr, 'level', i
+                print>>sys.stderr, 'level', i,
                 # TODO: order in decreasing score improvement, not area.
                 for idx, _ in sorted(placements.items(), key=lambda (k, v): -area(*v)):
                     if idx in frozen:
                         continue
                     if default_timer() - GLOBAL_START > TIME_LIMIT:
                         break
-                    if not self.try_subdivide(placements, used_penalty, idx):
+                    if self.try_subdivide(placements, used_penalty, idx):
+                        print>>sys.stderr, '.',
+                    else:
                         frozen.add(idx)
+
+                print>>sys.stderr
 
         for i, p in enumerate(used_penalty):
             if p == 0:
@@ -198,6 +188,8 @@ class CollageMaker(object):
         result = [-1] * 4 * len(sources)
         for idx, (x1, y1, x2, y2) in placements.items():
             result[idx * 4 : idx * 4 + 4] = [y1, x1, y2 - 1, x2 - 1]
+
+        log_stats()
 
         print>>sys.stderr, 'TOTAL TIME: {:.2f}s'.format(default_timer() - GLOBAL_START)
         sys.stderr.flush()

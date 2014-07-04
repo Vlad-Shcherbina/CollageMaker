@@ -13,6 +13,8 @@ except ImportError:
 import numpy
 import numpy.linalg
 
+from stats import *
+
 
 def load_image(path):
     img = Image.open(path)
@@ -175,6 +177,7 @@ class TargetImage(object):
 
     _cache = {}
 
+    @TimeIt('get_abstraction')
     def get_abstraction(self, x1, y1, x2, y2):
         n = 1.0 * (x2 - x1) * (y2 - y1)
         sc = self.rect_sum(x1, y1, x2, y2)
@@ -192,12 +195,12 @@ class TargetImage(object):
 
             q.sx2 = 1.0 * (x2 * (x2 - 1) * (2*x2 - 1) - x1 * (x1 - 1) * (2*x1 - 1)) / (x2 - x1)**2 / 6
             q.sx2 -= 0.5 * (2*x1 - 1) / (x2 - x1)**2 * (x2 * (x2 - 1) - x1 * (x1 - 1))
-            q.sx2 += (x2 - x1) * ((x1 - 0.5) / (x2 - x1))**2
+            q.sx2 += (x1 - 0.5) * (x1 - 0.5) / (x2 - x1)
             q.sx2 *= y2 - y1
 
             q.sy2 = 1.0 * (y2 * (y2 - 1) * (2*y2 - 1) - y1 * (y1 - 1) * (2*y1 - 1)) / (y2 - y1)**2 / 6
             q.sy2 -= 0.5 * (2*y1 - 1) / (y2 - y1)**2 * (y2 * (y2 - 1) - y1 * (y1 - 1))
-            q.sy2 += (y2 - y1) * ((y1 - 0.5) / (y2 - y1))**2
+            q.sy2 += (y1 - 0.5) * (y1 - 0.5) / (y2 - y1)
             q.sy2 *= x2 - x1
 
             q.sxy = 0.25 * (x2 * (x2 - 1) - x1 * (x1 - 1)) * (y2 * (y2 - 1) - y1 * (y1 - 1)) / n
