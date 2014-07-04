@@ -1,0 +1,39 @@
+<table>
+<tr>
+  <th align="left">id</th>
+  <th align="left">git status</th>
+  <th align="right">run details</th>
+</tr>
+{% for run in runs %}
+<tr>
+  <td align="left">
+    <a href="{{ url_for('run_details') }}?id={{ run.id }}{% if baseline_id %}&baseline_id={{baseline_id  }}{% endif %}">
+      {{ run.id }}</a>
+  </td>
+  <td align="left">
+    {% if run.attrs.clean %}
+    clean
+    {% else %}
+    <span title="{{ run.attrs.diff_stat }}">dirty</span>
+    {% if run.attrs.diff is not undefined %}
+      <a href="{{ run.attrs.diff | data_url }}">diff</a>
+    {% endif %}
+    {% endif %}
+    {{ run.attrs.commit | truncate(7, killwords=True, end='')}}
+    (#{{ run.attrs.commit_number }}),
+    {{ run.attrs.branch }}
+  </td>
+  <td align="right">
+    {% if run.attrs.error %}
+      <span title="{{ run.attrs.error }}">error</span>
+    {% endif %}
+    {{ run.attrs.num_runs }} results
+  </td>
+  {% if run.id != baseline_id %}
+  <td>
+  <a href="{{ url_for('list_runs') }}?baseline_id={{ run.id }}">set as baseline</a>
+  </td>
+  {% endif %}
+</tr>
+{% endfor%}
+</table>
