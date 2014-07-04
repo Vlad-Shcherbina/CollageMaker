@@ -113,21 +113,18 @@ assert numpy.allclose(numpy.dot(to_sim_matrix.T, to_sim_matrix), a)
 
 
 class ImageAbstraction(object):
-    def __init__(self):
-        self.alpha = 0.0
-        self.alphax = 0.0
-        self.alphay = 0.0
-        self.noise = -1
+    def compute_alphas(self):
+        self.alpha, self.alphax, self.alphay = \
+            numpy.linalg.inv(to_sim_matrix).dot(self.sim_coords)
 
     def instantiate(self, w, h):
-        alpha, alphax, alphay = \
-            numpy.linalg.inv(to_sim_matrix).dot(self.sim_coords)
+        self.compute_alphas()
         result = numpy.zeros((h, w))
         for i in range(h):
             for j in range(w):
-                q = (alpha +
-                    (j + 0.5) / w * alphax +
-                    (i + 0.5) / h * alphay)
+                q = (self.alpha +
+                    (j + 0.5) / w * self.alphax +
+                    (i + 0.5) / h * self.alphay)
                 c = random.normalvariate(q, self.noise)
                 c = int(c + 0.5)
                 if c < 0:
@@ -138,6 +135,8 @@ class ImageAbstraction(object):
         return result
 
     def naive_average_error(self, other):
+        self.compute_alphas()
+        other.compute_alphas()
         a = self.alpha - other.alpha
         ax = self.alphax - other.alphax
         ay = self.alphay - other.alphay
@@ -151,6 +150,7 @@ class ImageAbstraction(object):
         return result
 
     def __str__(self):
+        self.compute_alphas()
         return 'IA({:.1f}, {:.1f}, {:.1f})+-{:.1f}'.format(
             self.alpha, self.alphax, self.alphay, self.noise)
 
