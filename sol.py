@@ -13,6 +13,8 @@ from mipmaps import *
 
 TIME_LIMIT = 9.0
 
+PENALTY = 1e9
+
 
 @contextlib.contextmanager
 def time_it(task_name='it'):
@@ -31,22 +33,27 @@ def consume_image_description(data, start):
 class IALookupTable(object):
     def __init__(self, ias):
         self.ias = sorted(enumerate(ias), key=lambda (i, ia): ia.noise)
+        self.widths = numpy.array([ia.width for ia in ias])
+        self.heights = numpy.array([ia.height for ia in ias])
+        self.min_width = self.widths.min()
+        self.min_height = self.heights.min()
+        print>>sys.stderr, self.min_width, self.min_height
+        self.coords = numpy.array([
+            list(ia.sim_coords) + [ia.noise]
+            for ia in ias])
 
-    def find_nearest(self, ia1, min_w, min_h, used):
-        best_score = 1e10
-        best_index = None
-        for idx, ia2 in self.ias:
-            if best_score < ia1.noise**2 + ia2.noise**2:
-                break
-            if idx in used:
-                continue
-            if ia2.height < min_h or ia2.width < min_w:
-                continue
-            d = ia1.average_error(ia2)
-            if d < best_score:
-                best_score = d
-                best_index = idx
-        return best_index, best_score
+    def find_nearest(self, ia1, min_w, min_h, used_penalty):
+        pos = numpy.zeros(4)
+        pos[:3] = ia1.sim_coords
+        dists = self.coords - pos
+        dists = numpy.einsum('ij,ij->i', dists, dists)
+        dists += used_penalty
+        if min_w > self.min_width:
+            dists[self.widths < min_w] = PENALTY
+        if min_h > self.min_height:
+            dists[self.heights < min_h] = PENALTY
+        idx = dists.argsort()[0]
+        return idx, dists[idx] + ia1.noise * ia1.noise
 
 
 class CollageMaker(object):
@@ -58,13 +65,14 @@ class CollageMaker(object):
         s /= self.target.arr.size
         return sqrt(s)
 
-    def try_subdivide(self, placements, idx):
+    def try_subdivide(self, placements, used_penalty, idx):
         x1, y1, x2, y2 = placements[idx]
 
         ia1 = self.target.get_abstraction(x1, y1, x2, y2)
         penalty = ia1.average_error(self.ias[idx])
 
         del placements[idx]
+        used_penalty[idx] = 0
 
         best_score = penalty
         best_left = None
@@ -85,16 +93,18 @@ class CollageMaker(object):
                 ia_left,
                 min_w=rect_left[2] - rect_left[0],
                 min_h=rect_left[3] - rect_left[1],
-                used=placements)
+                used_penalty=used_penalty)
             if idx_left is None:
                 continue
             placements[idx_left] = ()
+            used_penalty[idx_left] = PENALTY
             idx_right, score_right = self.ia_table.find_nearest(
                 ia_right,
                 min_w=rect_right[2] - rect_right[0],
                 min_h=rect_right[3] - rect_right[1],
-                used=placements)
+                used_penalty=used_penalty)
             del placements[idx_left]
+            used_penalty[idx_left] = 0
 
             if idx_right is None:
                 continue
@@ -110,6 +120,7 @@ class CollageMaker(object):
 
         if best_sub is None:
             placements[idx] = (x1, y1, x2, y2)
+            used_penalty[idx] = PENALTY
             return False
         else:
             assert best_left is not None
@@ -118,30 +129,9 @@ class CollageMaker(object):
             print>>sys.stderr, 'subdividing'
             placements[best_left] = best_sub[0]
             placements[best_right] = best_sub[1]
+            used_penalty[best_left] = PENALTY
+            used_penalty[best_right] = PENALTY
             return True
-
-    def grid_placements(self, kw, kh):
-        h, w = self.target.arr.shape
-        placements = {}
-        approx = 0
-        for i in range(kh):
-            y1 = h * i // kh
-            y2 = h * (i + 1) // kh
-            for j in range(kw):
-                x1 = w * j // kw
-                x2 = w * (j + 1) // kw
-
-                ia1 = self.target.get_abstraction(x1, y1, x2, y2)
-                best_index, best_score = self.ia_table.find_nearest(
-                    ia1,
-                    min_w=x2 - x1, min_h=y2 - y1,
-                    used=placements)
-                if best_index is None:
-                    return 1e10, None
-
-                placements[best_index] = (x1, y1, x2, y2)
-                approx += best_score * (x2 - x1) * (y2 - y1)
-        return sqrt(1.0 * approx / self.target.arr.size), placements
 
     def compose(self, data):
         random.seed(42)
@@ -168,34 +158,43 @@ class CollageMaker(object):
             self.ia_table = IALookupTable(ias)
             self.scalables = map(ScalableImage, sources)
 
-        #with time_it('grid placements'):
-        #    ps = [self.grid_placements(kw, kh) for kw in range(1, 8) for kh in range(1, 8)]
-        #score, placements = min(ps)
-
         h, w = target.arr.shape
         placements = {}
+        used_penalty = numpy.zeros((200,))
 
         with time_it('build partition'):
             items = build_partition(target)
         items.sort(key=lambda (rect, ia): area(*rect), reverse=True)
         with time_it('find_nearest'):
             for (x1, y1, x2, y2), ia in items:
-                idx, _ = self.ia_table.find_nearest(ia, x2 - x1, y2 - y1, placements)
+                idx, _ = self.ia_table.find_nearest(
+                    ia, x2 - x1, y2 - y1,
+                    used_penalty)
                 placements[idx] = (x1, y1, x2, y2)
+                used_penalty[idx] = PENALTY
 
         with time_it('subdividing'):
             frozen = set()
             for i in range(10):
                 print>>sys.stderr, 'level', i
+                # TODO: order in decreasing score improvement, not area.
                 for idx, _ in sorted(placements.items(), key=lambda (k, v): -area(*v)):
                     if idx in frozen:
                         continue
                     if default_timer() - GLOBAL_START > TIME_LIMIT:
                         break
-                    if not self.try_subdivide(placements, idx):
+                    if not self.try_subdivide(placements, used_penalty, idx):
                         frozen.add(idx)
 
+        for i, p in enumerate(used_penalty):
+            if p == 0:
+                assert i not in placements
+            elif p == PENALTY:
+                assert i in placements
+            else:
+                assert False, p
         print>>sys.stderr, len(placements)
+
         result = [-1] * 4 * len(sources)
         for idx, (x1, y1, x2, y2) in placements.items():
             result[idx * 4 : idx * 4 + 4] = [y1, x1, y2 - 1, x2 - 1]
