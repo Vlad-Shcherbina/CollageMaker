@@ -13,14 +13,7 @@ class Mipmap(object):
         h, w = arr.shape
 
         def intermediate_sizes(size):
-            result = []
-            for x in 3, 4, 10, 30:
-                if x > size // 2:
-                    break
-                result.append(x)
-
-            result.append(size)
-            return result
+            return [3, 10, 30, size]
 
         self.ws = intermediate_sizes(w)
         self.hs = intermediate_sizes(h)
